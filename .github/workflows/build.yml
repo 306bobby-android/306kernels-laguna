@@ -1,0 +1,143 @@
+name: Build laguna kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      lineage_branch:
+        description: "LineageOS gs-6.6 manifest branch to read the ACK tag from"
+        required: false
+        default: "lineage-24.0"
+        type: string
+      ack_tag:
+        description: "ACK tag override (e.g. android15-6.6-2026-04_r33); empty = whatever Lineage pins"
+        required: false
+        default: ""
+        type: string
+      ksun_ref:
+        description: "KernelSU-Next ref on pershoot/KernelSU-Next (branch, tag or sha)"
+        required: false
+        default: "dev-susfs"
+        type: string
+      make_release:
+        description: "Publish a GitHub Release"
+        required: false
+        default: true
+        type: boolean
+  schedule:
+    # Sundays 04:20 UTC
+    - cron: "20 4 * * 0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: GKI android15-6.6 + KSUN + susfs + Droidspaces
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      LINEAGE_BRANCH_INPUT: ${{ inputs.lineage_branch || 'lineage-24.0' }}
+      ACK_TAG_INPUT: ${{ inputs.ack_tag || '' }}
+      KSUN_REF: ${{ inputs.ksun_ref || 'dev-susfs' }}
+      MAKE_RELEASE: ${{ github.event_name == 'schedule' && 'true' || inputs.make_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Kleaf + a full ACK checkout need ~60 GB; the runner image ships ~90 GB free.
+      - name: Free disk space
+        uses: endersonmenezes/free-disk-space@v4
+        with:
+          remove_android: true
+          remove_dotnet: true
+          remove_haskell: true
+          remove_tool_cache: true
+          remove_swap: true
+          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox"
+          remove_packages_one_command: true
+          remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+          rm_cmd: "rmz"
+          rmz_version: "3.2.0"
+          testing: false
+
+      - name: Swap for LTO
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 16
+
+      - name: Install repo tool
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -fsSL --retry 5 https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
+          chmod +x "$HOME/bin/repo"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global color.ui false
+
+      - name: Resolve ACK tag from Lineage manifest
+        run: scripts/resolve-kernel.sh "$LINEAGE_BRANCH_INPUT" "$ACK_TAG_INPUT"
+
+      - name: Sync kernel source
+        run: scripts/sync-kernel.sh
+
+      - name: KernelSU-Next
+        run: scripts/setup-ksun.sh
+
+      - name: susfs
+        run: scripts/setup-susfs.sh
+
+      - name: Droidspaces-OSS
+        run: scripts/setup-droidspaces.sh
+
+      - name: Prepare tree (branding, exports, defconfig gate)
+        run: scripts/prepare-build.sh
+
+      - name: Build
+        run: scripts/build-kernel.sh
+
+      - name: Package AnyKernel3 zip
+        run: scripts/package-ak3.sh
+
+      - name: Collect patch rejects
+        if: failure()
+        run: |
+          mkdir -p out/rejects
+          find kernel/common -name '*.rej' -newer kernel/common/Makefile -exec cp --parents {} out/rejects/ \; 2>/dev/null || true
+          ls -R out/rejects || true
+
+      - name: Upload rejects
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patch-rejects
+          path: out/rejects/
+          if-no-files-found: ignore
+
+      - name: Upload zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: |
+            out/*.zip
+            out/*.sha256
+            out/release-notes.md
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Release
+        if: env.MAKE_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "laguna ${KERNEL_RELEASE} (${ACK_TAG})" \
+            --notes-file out/release-notes.md \
+            "$ZIP_PATH" "$ZIP_PATH.sha256"
