@@ -45,5 +45,10 @@ else
 fi
 
 ui_print " "
-ui_print "306kernels laguna: https://github.com/306bobby-android/306kernels-laguna"
-ui_print " "
+
+## 306kernels epilogue
+ui_print " ";
+ui_print "Support me on Ko-Fi!  ko-fi.com/306bobby";
+ui_print " ";
+ui_printfile "$AKHOME/kofi-qr.txt";
+ui_print " ";
