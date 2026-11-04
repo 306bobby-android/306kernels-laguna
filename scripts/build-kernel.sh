@@ -5,6 +5,12 @@ set -euo pipefail
 
 cd "$KERNEL_ROOT"
 [ -x tools/bazel ] || die "tools/bazel missing; this is not a Kleaf tree"
+# Stamp the image with the ACK tag's commit date instead of the epoch-0 that
+# Kleaf's hermetic build otherwise writes into "Linux version ... #1 SMP".
+SOURCE_DATE_EPOCH="$(git -C "$COMMON" log -1 --format=%ct)"
+export SOURCE_DATE_EPOCH
+KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$SOURCE_DATE_EPOCH" '+%a %b %d %H:%M:%S UTC %Y')"
+export KBUILD_BUILD_TIMESTAMP
 tools/bazel build --config=fast --disk_cache="${BAZEL_DISK_CACHE:-$HOME/.cache/bazel}" //common:kernel_aarch64/Image
 
 CONFIG_FILE="bazel-bin/common/kernel_aarch64_config/out_dir/.config"
