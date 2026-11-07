@@ -47,8 +47,14 @@ fi
 ui_print " "
 
 ## 306kernels epilogue
+# update-binary's ui_printfile is not inherited by this shell
+printfile() {
+  local line pad;
+  (ps; ps -A) 2>/dev/null | grep -q '[z]ygote' || [ -e /twres ] || pad='| ';
+  while IFS='' read -r line || [ -n "$line" ]; do ui_print "$pad$line"; done < "$1";
+}
 ui_print " ";
 ui_print "Support me on Ko-Fi!  ko-fi.com/306bobby";
 ui_print " ";
-ui_printfile "$AKHOME/kofi-qr.txt";
+printfile "$AKHOME/kofi-qr.txt";
 ui_print " ";
