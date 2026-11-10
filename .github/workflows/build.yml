@@ -3,6 +3,12 @@ name: Build laguna kernel
 on:
   workflow_dispatch:
     inputs:
+      flavor:
+        description: "Which kernels to build"
+        required: false
+        default: "both"
+        type: choice
+        options: [both, stable, susfs]
       lineage_branch:
         description: "LineageOS gs-6.6 manifest branch to read the ACK tag from"
         required: false
@@ -13,10 +19,15 @@ on:
         required: false
         default: ""
         type: string
-      ksun_ref:
-        description: "KernelSU-Next release tag (install the manager apk of that release); latest = newest release"
+      ksun_tag:
+        description: "stable: KernelSU-Next release tag (its manager apk pairs with it); latest = newest release"
         required: false
         default: "latest"
+        type: string
+      ksun_susfs_ref:
+        description: "susfs: ref on pershoot/KernelSU-Next (branch, tag or sha)"
+        required: false
+        default: "dev-susfs"
         type: string
       make_release:
         description: "Publish a GitHub Release"
@@ -35,15 +46,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      flavors: ${{ steps.plan.outputs.flavors }}
+      stamp: ${{ steps.plan.outputs.stamp }}
+    steps:
+      - id: plan
+        run: |
+          case "${{ inputs.flavor || 'both' }}" in
+            both)   f='["stable","susfs"]' ;;
+            stable) f='["stable"]' ;;
+            susfs)  f='["susfs"]' ;;
+            *) echo "bad flavor" >&2; exit 1 ;;
+          esac
+          echo "flavors=$f" >> "$GITHUB_OUTPUT"
+          echo "stamp=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
   build:
-    name: GKI android15-6.6 + KernelSU-Next release + Droidspaces
+    needs: prep
+    name: ${{ matrix.flavor }} (GKI android15-6.6 + Droidspaces)
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: ${{ fromJSON(needs.prep.outputs.flavors) }}
     env:
+      FLAVOR: ${{ matrix.flavor }}
+      BUILD_STAMP: ${{ needs.prep.outputs.stamp }}
       LINEAGE_BRANCH_INPUT: ${{ inputs.lineage_branch || 'lineage-24.0' }}
       ACK_TAG_INPUT: ${{ inputs.ack_tag || '' }}
-      KSUN_REF: ${{ inputs.ksun_ref || 'latest' }}
-      MAKE_RELEASE: ${{ github.event_name == 'schedule' && 'true' || inputs.make_release }}
+      KSUN_TAG: ${{ inputs.ksun_tag || 'latest' }}
+      KSUN_SUSFS_REF: ${{ inputs.ksun_susfs_ref || 'dev-susfs' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -91,6 +126,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/setup-ksun.sh
 
+      - name: susfs
+        if: matrix.flavor == 'susfs'
+        run: scripts/setup-susfs.sh
+
       - name: Droidspaces-OSS
         run: scripts/setup-droidspaces.sh
 
@@ -114,29 +153,47 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: patch-rejects
+          name: patch-rejects-${{ matrix.flavor }}
           path: out/rejects/
           if-no-files-found: ignore
 
       - name: Upload zip
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ZIP_NAME }}
+          name: laguna-${{ matrix.flavor }}
           path: |
             out/*.zip
             out/*.sha256
-            out/release-notes.md
+            out/header.md
+            out/notes-*.md
+            out/release.env
           compression-level: 0
           if-no-files-found: error
 
+  release:
+    needs: [prep, build]
+    # one release per run, carrying whichever flavors built
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.make_release == true) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: laguna-*
+          path: dist
+          merge-multiple: true
+
       - name: Release
-        if: env.MAKE_RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          cd dist
+          ls -la
+          ls ./*.zip >/dev/null 2>&1 || { echo "no flavor built; nothing to release" >&2; exit 1; }
+          . ./release.env
+          { cat header.md; for f in notes-stable.md notes-susfs.md; do [ -f "$f" ] && cat "$f"; done; } > notes.md
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "laguna ${KERNEL_RELEASE} (${ACK_TAG}, KernelSU-Next ${KSUN_TAG})" \
-            --notes-file out/release-notes.md \
-            "$ZIP_PATH" "$ZIP_PATH.sha256"
+            --title "$RELEASE_TITLE" \
+            --notes-file notes.md \
+            ./*.zip ./*.sha256

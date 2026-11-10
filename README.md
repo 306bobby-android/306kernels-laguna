@@ -1,8 +1,13 @@
 # 306kernels-laguna
 
 GKI `android15-6.6` kernel for the Pixel 10 family with KernelSU-Next and
-Droidspaces support, built on GitHub Actions and shipped as an AnyKernel3 zip.
-susfs comes from the KernelSU-Next release itself (see below).
+Droidspaces support, built on GitHub Actions and shipped as AnyKernel3 zips.
+Every release carries two flavors; flash one:
+
+| Flavor | KernelSU-Next kernel side | susfs | Manager to install |
+| --- | --- | --- | --- |
+| `stable` | newest official release tag | guard LKM loaded by ksud | the apk attached to that KernelSU-Next release |
+| `susfs` | pershoot's `dev-susfs` (upstream dev + susfs hooks) | built into the kernel | upstream's dev CI build: [manager.zip](https://nightly.link/KernelSU-Next/KernelSU-Next/workflows/build-manager-ci/dev/manager.zip) |
 
 Devices: Pixel 10 (frankel), Pixel 10 Pro (blazer), Pixel 10 Pro XL (mustang),
 Pixel 10 Pro Fold (rango). Flash it on crDroid or LineageOS `lineage-24.0` builds.
@@ -21,19 +26,21 @@ testing a newer or older tag.
 
 ## What is in it
 
-- KernelSU-Next, kernel side taken from an official
+- KernelSU-Next. `stable` takes the kernel side from an official
   [release tag](https://github.com/KernelSU-Next/KernelSU-Next/releases)
-  (the newest one by default; `ksun_ref` pins another). It hooks through
-  kprobes, so the ACK source is not patched for it. Install the manager apk
-  attached to the **same** release; the release notes of every zip name it.
-- susfs: KernelSU-Next 3.x no longer carries susfs hooks in the kernel tree.
-  Each release ships a `android15-6.6_susfs_guard_lkm.ko` that `ksud` loads
-  at boot, before module scripts run. Turn it on once in the manager's
-  settings ("Enable auto load"), then install the
-  [susfs4ksu-module](https://github.com/sidex15/susfs4ksu-module) as usual.
-  The module needs no exported symbols (it resolves everything through
-  kallsyms) and ksuinit rewrites its vermagic, so it loads on this kernel
-  although the version string differs from stock.
+  (`ksun_tag` pins one); it hooks through kprobes, so the ACK source is not
+  patched for it, and the manager apk of the same release pairs with it.
+  `susfs` takes pershoot's `dev-susfs`, the only 3.x tree that still carries
+  susfs hooks in the kernel. Upstream dev has none since the 3.x rewrite, and
+  no released manager speaks its UAPI, so it pairs with upstream's dev manager
+  CI build (link above). The build checks that pershoot's tree speaks the same
+  UAPI as upstream dev that day and aborts otherwise.
+- susfs. `susfs` flavor: susfs4ksu `gki-android15-6.6` patched into the
+  kernel, the usual feature set. `stable` flavor: each KernelSU-Next release
+  ships a `android15-6.6_susfs_guard_lkm.ko` that ksud loads at boot once
+  "Enable auto load" is on in the manager's settings (it needs no exported
+  symbols and ksuinit rewrites its vermagic). Either way install the
+  [susfs4ksu-module](https://github.com/sidex15/susfs4ksu-module) afterwards.
 - Droidspaces-OSS: the kABI-safe config set plus the SYSVIPC padding patch, so
   containers work without rebuilding vendor modules. `--cpus` and
   `--pids-limit` are intentionally unavailable (they break the kABI).
@@ -45,8 +52,8 @@ Nothing else: no scheduler mods, no BBR, no extra "performance" patches.
 1. Grab the zip from Releases.
 2. Flash it from recovery (adb sideload works on Lineage recovery) or with
    KernelFlasher / Franco Kernel Manager if you are already rooted.
-3. Install the KernelSU-Next manager of the matching release, enable susfs
-   auto-load in its settings, then install the susfs module.
+3. Install the manager that matches the flavor (table above). On `stable`
+   also enable susfs auto-load in its settings. Then install the susfs module.
 
 The zip only touches the `boot` partition. Every ROM update replaces `boot`,
 so re-flash the kernel after each OTA. To go back to stock, flash the ROM's
@@ -61,6 +68,6 @@ configs/                      CONFIG lists applied to gki_defconfig
 anykernel/                    AnyKernel3 template; CI drops Image in here and zips it
 ```
 
-The Kleaf/ACK handling mirrors [WildKernels/GKI_KernelSU_SUSFS](https://github.com/WildKernels/GKI_KernelSU_SUSFS);
-the root setup does not (WildKernels builds the dev branch plus their own
-manager, this repo tracks the released pairs).
+The Kleaf/ACK and susfs handling mirrors
+[WildKernels/GKI_KernelSU_SUSFS](https://github.com/WildKernels/GKI_KernelSU_SUSFS),
+trimmed to the three things above and without their self-built managers.
