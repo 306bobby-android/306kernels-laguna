@@ -25,12 +25,14 @@ Matches LineageOS/crDroid ${LINEAGE_BRANCH:-lineage-24.0} builds (kernel from Li
 | Component | Ref |
 | --- | --- |
 | ACK | ${ACK_TAG} (${KERNEL_SOURCE_COMMIT:-?}) |
-| KernelSU-Next | ${KSUN_DESCRIBE:-?} / ${KSUN_COMMIT:-?} (version ${KSUN_VERSION_CODE:-?}) |
-| susfs4ksu | ${SUSFS_VERSION:-?} / ${SUSFS_COMMIT:-?} |
+| KernelSU-Next | ${KSUN_TAG:-?} / ${KSUN_COMMIT:-?} (version ${KSUN_VERSION_CODE:-?}) |
 | Droidspaces-OSS | ${DROIDSPACES_COMMIT:-?} |
 
 Flash the zip in recovery or with KernelFlasher. Re-flash after every ROM update.
-Manager: official KernelSU-Next release. susfs module: sidex15/susfs4ksu-module.
+Manager: the KernelSU-Next ${KSUN_TAG:-?} release apk (same release as the kernel side).
+susfs: not built into the kernel. In the manager's settings turn on "Enable auto load";
+ksud then loads that release's ${ANDROID_VERSION}-${KERNEL_VERSION} susfs guard module at
+every boot, before module scripts run. Root hiding module: sidex15/susfs4ksu-module.
 MD
 
 setenv ZIP_PATH "$WORKSPACE/out/${NAME}.zip"

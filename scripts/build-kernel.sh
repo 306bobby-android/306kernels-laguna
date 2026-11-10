@@ -17,14 +17,14 @@ CONFIG_FILE="bazel-bin/common/kernel_aarch64_config/out_dir/.config"
 [ -f "$CONFIG_FILE" ] || CONFIG_FILE="$(find bazel-bin/common -maxdepth 4 -name .config -type f 2>/dev/null | head -n1 || true)"
 [ -n "$CONFIG_FILE" ] || die "could not locate the generated .config"
 log "checking $CONFIG_FILE"
-for want in CONFIG_KSU=y CONFIG_KSU_SUSFS=y CONFIG_SYSVIPC=y CONFIG_IPC_NS=y CONFIG_PID_NS=y CONFIG_ARM64_4K_PAGES=y; do
+# KPROBES: KernelSU-Next hooks; KALLSYMS_ALL: the susfs guard LKM resolves unexported symbols by name
+for want in CONFIG_KSU=y CONFIG_KPROBES=y CONFIG_KALLSYMS_ALL=y CONFIG_SYSVIPC=y CONFIG_IPC_NS=y CONFIG_PID_NS=y CONFIG_ARM64_4K_PAGES=y; do
   grep -qx "$want" "$CONFIG_FILE" || die "$want missing from final .config"
 done
 grep -E '^#? ?CONFIG_KSU' "$CONFIG_FILE" || true
 
 IMG=bazel-bin/common/kernel_aarch64/Image
 [ -f "$IMG" ] || die "no Image at $IMG"
-log "susfs strings in Image: $(grep -ac susfs "$IMG" || true)"
 mkdir -p "$WORKSPACE/out"
 cp "$IMG" "$WORKSPACE/out/Image"
 ok "Image built: $(stat -c %s "$WORKSPACE/out/Image") bytes"

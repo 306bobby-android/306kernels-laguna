@@ -25,7 +25,7 @@ setenv KERNEL_RELEASE "$RELEASE"
 sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" "$KERNEL_ROOT/build/kernel/kleaf/impl/stamp.bzl"
 sed -i 's/-dirty//' scripts/setlocalversion
 
-# Protected exports / modules lists would reject the symbols susfs and KSU add.
+# Protected exports / modules lists would reject the symbols KernelSU adds.
 rm -rf android/abi_gki_protected_exports_*
 if grep -q '"protected_exports_list"' BUILD.bazel; then
   perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' BUILD.bazel
@@ -50,5 +50,5 @@ fi
 git config user.name  "github-actions[bot]"
 git config user.email "github-actions[bot]@users.noreply.github.com"
 git add -A
-git commit -q -m "306kernels: KernelSU-Next + susfs + Droidspaces on ${ACK_TAG:-unknown}" || true
+git commit -q -m "306kernels: KernelSU-Next + Droidspaces on ${ACK_TAG:-unknown}" || true
 ok "release string $RELEASE"

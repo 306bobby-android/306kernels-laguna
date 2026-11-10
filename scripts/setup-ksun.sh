@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Integrate KernelSU-Next (susfs-integrated tree) into the ACK source.
-# Mirrors WildKernels' root-setup for flavor "next".
+# Integrate KernelSU-Next into the ACK source at a release tag.
 #
-# KSUN_REPO / KSUN_REF: where the kernel-side code comes from. Default is
-# pershoot's dev-susfs branch: upstream KernelSU-Next/KernelSU-Next `dev` has no
-# susfs support in-tree; pershoot mirrors `dev` and layers the susfs hooks on
-# top. The manager is still the official KernelSU-Next release.
+# KSUN_REF is a tag of KSUN_REPO, or "latest" for the newest GitHub release;
+# the manager apk attached to that same release is the one that pairs with it.
+# The 3.x kernel side hooks through kprobes, so no kernel patch is needed, and
+# susfs is the release's guard LKM (ksud loads it; manager: "Enable auto load"),
+# not a susfs4ksu kernel patch.
 set -euo pipefail
 . "$(dirname "$0")/common.sh"
 
-KSUN_REPO="${KSUN_REPO:-https://github.com/pershoot/KernelSU-Next.git}"
-KSUN_REF="${KSUN_REF:-dev-susfs}"
-KSUN_UPSTREAM_BRANCH="${KSUN_UPSTREAM_BRANCH:-dev}"   # what the version counter is measured against
+KSUN_REPO="${KSUN_REPO:-https://github.com/KernelSU-Next/KernelSU-Next.git}"
+KSUN_REF="${KSUN_REF:-latest}"
 DIR="$KERNEL_ROOT/KernelSU-Next"
 
 cd "$KERNEL_ROOT"
@@ -19,38 +18,42 @@ cd "$KERNEL_ROOT"
 [ ! -e "$COMMON/drivers/kernelsu" ] || die "drivers/kernelsu already exists"
 [ ! -e "$DIR" ] || die "$DIR already exists"
 
-sha="$(resolve_ref "$KSUN_REPO" "$KSUN_REF")"
+if [ "$KSUN_REF" = latest ]; then
+  api="${KSUN_REPO#https://github.com/}"
+  api="https://api.github.com/repos/${api%.git}/releases/latest"
+  auth=()
+  if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
+  KSUN_REF="$(curl -fsSL "${auth[@]}" "$api" | jq -r '.tag_name // empty')"
+  [ -n "$KSUN_REF" ] || die "could not resolve the latest release of $KSUN_REPO"
+fi
+# an annotated tag lists twice; the ^{} line is the commit
+sha="$(git ls-remote --tags "$KSUN_REPO" "refs/tags/$KSUN_REF" "refs/tags/$KSUN_REF^{}" \
+       | awk '/\^\{\}$/ { peeled=$1 } !/\^\{\}$/ { tag=$1 } END { print (peeled ? peeled : tag) }')"
+[ -n "$sha" ] || die "'$KSUN_REF' is not a tag on $KSUN_REPO"
 require_sha "$sha"
 log "KernelSU-Next: $KSUN_REPO @ $KSUN_REF -> $sha"
 retry git clone --no-checkout "$KSUN_REPO" "$DIR"
-git -C "$DIR" fetch origin "$sha"
-git -C "$DIR" checkout --detach "$sha"
-[ "$(git -C "$DIR" rev-parse HEAD)" = "$sha" ] || die "KernelSU-Next checkout mismatch"
-[ -f "$DIR/.git/shallow" ] && die "KernelSU-Next clone is shallow; version count would be wrong"
+git -C "$DIR" checkout -q --detach "$sha"
+[ "$(git -C "$DIR" describe --tags --exact-match HEAD)" = "$KSUN_REF" ] || die "HEAD of $DIR is not $KSUN_REF"
+[ ! -f "$DIR/.git/shallow" ] || die "KernelSU-Next clone is shallow; version count would be wrong"
 
-# kernel/Kbuild derives KSU_VERSION from `git rev-parse --abbrev-ref HEAD`,
-# which is the literal "HEAD" on a detached checkout and makes the version
-# depend on clone layout. Pin it: 30000 + commit count at the merge-base with
-# upstream dev, which is also the number the official manager reports.
-base="$(git -C "$DIR" merge-base HEAD "refs/remotes/origin/${KSUN_UPSTREAM_BRANCH}" 2>/dev/null || echo "$sha")"
-count="$(git -C "$DIR" rev-list --count "$base")"
-tag="$(git -C "$DIR" describe --tags --abbrev=0 "$base" 2>/dev/null || echo unknown)"
+count="$(git -C "$DIR" rev-list --count HEAD)"
 version=$((30000 + count))
 kbuild="$DIR/kernel/Kbuild"
-[ -f "$kbuild" ] && [ -f "$DIR/kernel/Kconfig" ] && [ -f "$DIR/kernel/Makefile" ] || die "no kernel integration in $DIR"
-if grep -q 'BASE_BRANCH' "$kbuild" && ! grep -q '^# CI: deterministic KSU_VERSION' "$kbuild"; then
-  {
-    echo ''
-    echo '# CI: deterministic KSU_VERSION (appended by scripts/setup-ksun.sh).'
-    echo "KSU_VERSION := $version"
-    echo "KSU_VERSION_TAG := \"$tag\""
-  } >> "$kbuild"
-fi
-# Older Kbuilds hard-error at mrproper time when neither KPROBES nor KSU_SUSFS
-# is set yet (no .config exists then). Demote to a warning; no-op today.
-if grep -q 'KernelSU requires either CONFIG_KPROBES' "$kbuild"; then
-  sed -i 's/$(error "KernelSU requires either CONFIG_KPROBES=y or CONFIG_KSU_SUSFS=y")/$(warning "KernelSU requires either CONFIG_KPROBES=y or CONFIG_KSU_SUSFS=y")/' "$kbuild"
-fi
+[ -f "$kbuild" ] && [ -f "$DIR/kernel/Kconfig" ] || die "no kernel integration in $DIR"
+# Kbuild reads the version from git in this checkout, which Kleaf's sandbox may
+# not see; its fallback (1 / v0.0.1) is what the manager reports as a mismatch.
+anchor='# Calculate version if git version is available'
+grep -qxF "$anchor" "$kbuild" || die "kernel/Kbuild shape changed; cannot pin KSU_VERSION"
+awk -v a="$anchor" -v c="$count" -v t="$KSUN_REF" '
+  $0 == a {
+    print "# CI: pinned by scripts/setup-ksun.sh"
+    print "KSU_GIT_VERSION := " c
+    print "KSU_GIT_TAG := " t
+    print "KSU_GIT_VERSION_VALID := 1"
+    print ""
+  }
+  { print }' "$kbuild" > "$kbuild.tmp" && mv "$kbuild.tmp" "$kbuild"
 
 rel="$(realpath --relative-to="$COMMON/drivers" "$DIR/kernel")"
 ln -s "$rel" "$COMMON/drivers/kernelsu"
@@ -61,8 +64,7 @@ grep -q 'source "drivers/kernelsu/Kconfig"' "$COMMON/drivers/Kconfig" \
 
 "$REPO_ROOT/scripts/set-kernel-config.sh" "$REPO_ROOT/configs/ksu.config"
 
+setenv KSUN_TAG "$KSUN_REF"
 setenv KSUN_COMMIT "$sha"
-setenv KSUN_BASE_COMMIT "$base"
 setenv KSUN_VERSION_CODE "$version"
-setenv KSUN_DESCRIBE "$(git -C "$DIR" describe --tags --always)"
-ok "KernelSU-Next $KSUN_DESCRIBE (version $version, base ${base:0:12})"
+ok "KernelSU-Next $KSUN_REF (version $version, ${sha:0:12})"

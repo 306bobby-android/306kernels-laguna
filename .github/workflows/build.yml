@@ -14,9 +14,9 @@ on:
         default: ""
         type: string
       ksun_ref:
-        description: "KernelSU-Next ref on pershoot/KernelSU-Next (branch, tag or sha)"
+        description: "KernelSU-Next release tag (install the manager apk of that release); latest = newest release"
         required: false
-        default: "dev-susfs"
+        default: "latest"
         type: string
       make_release:
         description: "Publish a GitHub Release"
@@ -36,13 +36,13 @@ concurrency:
 
 jobs:
   build:
-    name: GKI android15-6.6 + KSUN + susfs + Droidspaces
+    name: GKI android15-6.6 + KernelSU-Next release + Droidspaces
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
       LINEAGE_BRANCH_INPUT: ${{ inputs.lineage_branch || 'lineage-24.0' }}
       ACK_TAG_INPUT: ${{ inputs.ack_tag || '' }}
-      KSUN_REF: ${{ inputs.ksun_ref || 'dev-susfs' }}
+      KSUN_REF: ${{ inputs.ksun_ref || 'latest' }}
       MAKE_RELEASE: ${{ github.event_name == 'schedule' && 'true' || inputs.make_release }}
     steps:
       - name: Checkout
@@ -87,10 +87,9 @@ jobs:
         run: scripts/sync-kernel.sh
 
       - name: KernelSU-Next
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: scripts/setup-ksun.sh
-
-      - name: susfs
-        run: scripts/setup-susfs.sh
 
       - name: Droidspaces-OSS
         run: scripts/setup-droidspaces.sh
@@ -138,6 +137,6 @@ jobs:
           set -euo pipefail
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "laguna ${KERNEL_RELEASE} (${ACK_TAG})" \
+            --title "laguna ${KERNEL_RELEASE} (${ACK_TAG}, KernelSU-Next ${KSUN_TAG})" \
             --notes-file out/release-notes.md \
             "$ZIP_PATH" "$ZIP_PATH.sha256"
