@@ -36,10 +36,8 @@ ACK ${ACK_TAG} (${KERNEL_SOURCE_COMMIT:-?}), Droidspaces-OSS ${DROIDSPACES_COMMI
 Flash a zip in recovery or with KernelFlasher. Re-flash after every ROM update.
 Pick **one** flavor; each pairs with a different manager build.
 MD
-cat > "$WORKSPACE/out/release.env" <<ENV
-RELEASE_TAG=${RELEASE_TAG}
-RELEASE_TITLE=laguna ${KERNEL_RELEASE} (${ACK_TAG})
-ENV
+# sourced by the release job, so quote
+printf "RELEASE_TAG='%s'\nRELEASE_TITLE='%s'\n" "$RELEASE_TAG" "laguna ${KERNEL_RELEASE} (${ACK_TAG})" > "$WORKSPACE/out/release.env"
 
 case "$FLAVOR" in
   stable)
