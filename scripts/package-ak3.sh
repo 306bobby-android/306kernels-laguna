@@ -24,7 +24,7 @@ grep -q '^kernel.string=' "$STAGE/anykernel.sh" || die "anykernel.sh has no kern
 sed -i "s|^kernel.string=.*|kernel.string=306kernels GKI (laguna) [${FLAVOR}]: ${desc}|" "$STAGE/anykernel.sh"
 cp "$WORKSPACE/out/Image" "$STAGE/Image"
 ( cd "$STAGE" && zip -r9 -q "$WORKSPACE/out/${NAME}.zip" . -x '.git*' )
-sha256sum "$WORKSPACE/out/${NAME}.zip" | tee "$WORKSPACE/out/${NAME}.zip.sha256"
+( cd "$WORKSPACE/out" && sha256sum "${NAME}.zip" | tee "${NAME}.zip.sha256" )
 
 cat > "$WORKSPACE/out/header.md" <<MD
 306kernels laguna: GKI ${KERNEL_RELEASE}
