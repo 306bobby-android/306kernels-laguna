@@ -192,8 +192,15 @@ jobs:
           ls ./*.zip >/dev/null 2>&1 || { echo "no flavor built; nothing to release" >&2; exit 1; }
           . ./release.env
           { cat header.md; for f in notes-stable.md notes-susfs.md; do [ -f "$f" ] && cat "$f"; done; } > notes.md
-          gh release create "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$RELEASE_TITLE" \
-            --notes-file notes.md \
-            ./*.zip ./*.sha256
+          # the tag is date-based; a rerun on the same day replaces that release
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*.zip ./*.sha256
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TITLE" --notes-file notes.md
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TITLE" \
+              --notes-file notes.md \
+              ./*.zip ./*.sha256
+          fi
