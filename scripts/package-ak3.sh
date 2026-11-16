@@ -16,12 +16,15 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -a "$REPO_ROOT/anykernel/." "$STAGE/"
 case "$FLAVOR" in
-  stable) desc="KernelSU-Next ${KSUN_TAG:-release} + Droidspaces (susfs: manager's guard LKM)" ;;
+  stable) desc="KernelSU-Next ${KSUN_TAG:-release} + Droidspaces (susfs via the manager-loaded guard LKM)" ;;
   susfs)  desc="KernelSU-Next dev-susfs + built-in susfs + Droidspaces" ;;
   *) die "unknown FLAVOR $FLAVOR" ;;
 esac
 grep -q '^kernel.string=' "$STAGE/anykernel.sh" || die "anykernel.sh has no kernel.string"
 sed -i "s|^kernel.string=.*|kernel.string=306kernels GKI (laguna) [${FLAVOR}]: ${desc}|" "$STAGE/anykernel.sh"
+# the properties block is a single-quoted shell string; an apostrophe in the
+# description makes recovery's ash choke on it (status 1), so parse it here
+bash -n "$STAGE/anykernel.sh" || die "generated anykernel.sh does not parse"
 cp "$WORKSPACE/out/Image" "$STAGE/Image"
 ( cd "$STAGE" && zip -r9 -q "$WORKSPACE/out/${NAME}.zip" . -x '.git*' )
 ( cd "$WORKSPACE/out" && sha256sum "${NAME}.zip" | tee "${NAME}.zip.sha256" )
